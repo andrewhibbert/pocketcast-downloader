@@ -16,19 +16,23 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import certifi
+from mutagen.mp3 import MP3
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC, TCON, COMM, APIC
+from mutagen.mp4 import MP4, MP4Cover
+from mutagen import File as MutagenFile
 
 
 class PocketCastsAPI:
     """Client for interacting with the Pocket Casts API"""
-    
+
     BASE_URL = "https://api.pocketcasts.com"
     WEB_URL = "https://play.pocketcasts.com"
-    
+
     def __init__(self, token=None, verify_ssl=True):
         self.session = requests.Session()
         self.token = token
         self.verify_ssl = verify_ssl
-        
+
         if verify_ssl:
             try:
                 self.session.verify = certifi.where()
@@ -37,26 +41,23 @@ class PocketCastsAPI:
         else:
             self.session.verify = False
             import urllib3
+
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
+
         if self.token:
-            self.session.headers.update({
-                "Authorization": f"Bearer {self.token}"
-            })
+            self.session.headers.update({"Authorization": f"Bearer {self.token}"})
             self.session.cookies.set("accessToken", self.token)
-        
+
     def set_token(self, token: str):
         """Set the authentication token"""
         self.token = token
-        self.session.headers.update({
-            "Authorization": f"Bearer {self.token}"
-        })
+        self.session.headers.update({"Authorization": f"Bearer {self.token}"})
         self.session.cookies.set("accessToken", self.token)
-        
+
     def verify_auth(self):
         """Verify that the authentication token works"""
         url = f"{self.BASE_URL}/user/starred"
-        
+
         try:
             response = self.session.post(url)
             response.raise_for_status()
@@ -66,11 +67,11 @@ class PocketCastsAPI:
             print(f"✗ Authentication failed: {e}")
             print("\nPlease check your token is correct and not expired.")
             return False
-    
+
     def get_starred_episodes(self):
         """Get all starred/favorited episodes"""
         url = f"{self.BASE_URL}/user/starred"
-        
+
         try:
             response = self.session.post(url)
             response.raise_for_status()
@@ -81,12 +82,12 @@ class PocketCastsAPI:
         except Exception as e:
             print(f"✗ Failed to get starred episodes: {e}")
             return []
-    
+
     def get_episode_info(self, episode_uuid):
         """Get detailed information about an episode"""
         url = f"{self.BASE_URL}/user/episode"
         payload = {"uuid": episode_uuid}
-        
+
         try:
             response = self.session.post(url, json=payload)
             response.raise_for_status()
@@ -98,12 +99,12 @@ class PocketCastsAPI:
 
 class PodcastDownloader:
     """Downloads podcast episodes"""
-    
+
     def __init__(self, download_dir="./downloads", verify_ssl=True):
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.verify_ssl = verify_ssl
-        
+
         if verify_ssl:
             try:
                 self.verify = certifi.where()
@@ -111,67 +112,258 @@ class PodcastDownloader:
                 self.verify = True
         else:
             self.verify = False
-        
+
     def sanitize_filename(self, filename):
         """Remove invalid characters from filename"""
-        filename = filename.replace('|', '-')
-        filename = filename.replace(':', ' -')
-        
+        filename = filename.replace("|", "-")
+        filename = filename.replace(":", " -")
+
         invalid_chars = '<>"/\\?*'
         for char in invalid_chars:
-            filename = filename.replace(char, '')
-        
-        filename = ' '.join(filename.split())
-        
+            filename = filename.replace(char, "")
+
+        filename = " ".join(filename.split())
+
         return filename
-    
+
+    def download_artwork(self, url):
+        """Download artwork image from URL"""
+        try:
+            response = requests.get(url, timeout=10, verify=self.verify)
+            response.raise_for_status()
+            return response.content
+        except Exception:
+            return None
+
+    def set_metadata(self, filepath, episode):
+        """
+        Set metadata tags (ID3 for MP3, iTunes tags for M4A) on the downloaded file.
+        Only adds tags if they don't already exist - preserves any existing metadata.
+
+        Tags set:
+        - Title: Episode title
+        - Artist: Podcast name
+        - Album: Podcast name
+        - Year: Published year
+        - Genre: "Podcast"
+        - Album Art: Podcast artwork (if available)
+        """
+        try:
+            audio = MutagenFile(filepath, easy=False)
+
+            if audio is None:
+                return
+
+            title = episode.get("title", "")
+            podcast_title = episode.get("podcastTitle", "")
+            published = episode.get("published", "")
+
+            # Enhance title if it's too short or generic
+            # Check if title is very short or doesn't contain podcast info
+            if title and podcast_title:
+                title_lower = title.lower()
+                podcast_lower = podcast_title.lower()
+
+                # If title is short (< 15 chars) or doesn't reference the podcast
+                if len(title) < 15 or (
+                    podcast_lower not in title_lower
+                    and not any(
+                        word in title_lower for word in podcast_lower.split()[:2]
+                    )
+                ):
+                    # Enhance with podcast name prefix
+                    title = f"{podcast_title} - {title}"
+
+            year = ""
+            if published:
+                try:
+                    pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                    year = str(pub_date.year)
+                except Exception:
+                    pass
+
+            tags_added = []
+
+            artwork_url = (
+                episode.get("episodeArtworkUrl")
+                or episode.get("podcastArtworkUrl")
+                or episode.get("imageUrl")
+            )
+
+            if isinstance(audio, MP3):
+                if audio.tags is None:
+                    audio.add_tags()
+
+                # Check if existing title needs enhancement
+                existing_title = None
+                existing_title_frames = audio.tags.getall("TIT2")
+                if existing_title_frames:
+                    existing_title = str(existing_title_frames[0])
+
+                should_update_title = False
+                if existing_title:
+                    # Check if existing title is short or generic
+                    existing_lower = existing_title.lower()
+                    podcast_lower = podcast_title.lower()
+                    if len(existing_title) < 15 or (
+                        podcast_lower not in existing_lower
+                        and not any(
+                            word in existing_lower for word in podcast_lower.split()[:2]
+                        )
+                    ):
+                        should_update_title = True
+
+                if not existing_title_frames:
+                    audio.tags.add(TIT2(encoding=3, text=title))
+                    tags_added.append("Title")
+                elif should_update_title:
+                    # Update existing short/generic title
+                    audio.tags.delall("TIT2")
+                    audio.tags.add(TIT2(encoding=3, text=title))
+                    tags_added.append("Title (enhanced)")
+
+                if not audio.tags.getall("TPE1"):
+                    audio.tags.add(TPE1(encoding=3, text=podcast_title))
+                    tags_added.append("Artist")
+                if not audio.tags.getall("TALB"):
+                    audio.tags.add(TALB(encoding=3, text=podcast_title))
+                    tags_added.append("Album")
+                if year and not audio.tags.getall("TDRC"):
+                    audio.tags.add(TDRC(encoding=3, text=year))
+                    tags_added.append("Year")
+                if not audio.tags.getall("TCON"):
+                    audio.tags.add(TCON(encoding=3, text="Podcast"))
+                    tags_added.append("Genre")
+
+                if artwork_url and not audio.tags.getall("APIC"):
+                    artwork_data = self.download_artwork(artwork_url)
+                    if artwork_data:
+                        mime = "image/jpeg"
+                        if artwork_url.lower().endswith(".png"):
+                            mime = "image/png"
+                        audio.tags.add(
+                            APIC(
+                                encoding=3,
+                                mime=mime,
+                                type=3,
+                                desc="Cover",
+                                data=artwork_data,
+                            )
+                        )
+                        tags_added.append("Album Art")
+
+            elif isinstance(audio, MP4):
+                # Check if existing title needs enhancement
+                existing_title = None
+                if "\xa9nam" in audio:
+                    existing_title = str(audio["\xa9nam"][0])
+
+                should_update_title = False
+                if existing_title:
+                    # Check if existing title is short or generic
+                    existing_lower = existing_title.lower()
+                    podcast_lower = podcast_title.lower()
+                    if len(existing_title) < 15 or (
+                        podcast_lower not in existing_lower
+                        and not any(
+                            word in existing_lower for word in podcast_lower.split()[:2]
+                        )
+                    ):
+                        should_update_title = True
+
+                if "\xa9nam" not in audio:
+                    audio["\xa9nam"] = title
+                    tags_added.append("Title")
+                elif should_update_title:
+                    # Update existing short/generic title
+                    audio["\xa9nam"] = title
+                    tags_added.append("Title (enhanced)")
+
+                if "\xa9ART" not in audio:
+                    audio["\xa9ART"] = podcast_title
+                    tags_added.append("Artist")
+                if "\xa9alb" not in audio:
+                    audio["\xa9alb"] = podcast_title
+                    tags_added.append("Album")
+                if year and "\xa9day" not in audio:
+                    audio["\xa9day"] = year
+                    tags_added.append("Year")
+                if "\xa9gen" not in audio:
+                    audio["\xa9gen"] = "Podcast"
+                    tags_added.append("Genre")
+
+                if artwork_url and "covr" not in audio:
+                    artwork_data = self.download_artwork(artwork_url)
+                    if artwork_data:
+                        imageformat = MP4Cover.FORMAT_JPEG
+                        if artwork_url.lower().endswith(".png"):
+                            imageformat = MP4Cover.FORMAT_PNG
+                        audio["covr"] = [
+                            MP4Cover(artwork_data, imageformat=imageformat)
+                        ]
+                        tags_added.append("Album Art")
+
+            if tags_added:
+                audio.save()
+                print(f"  ℹ️  Added metadata: {', '.join(tags_added)}")
+            else:
+                print(f"  ℹ️  All metadata tags already exist")
+
+        except Exception as e:
+            print(f"  ⚠️  Could not set metadata: {e}")
+
     def download_episode(self, episode, organize_by_podcast=False):
         """Download a single episode"""
         try:
             title = episode.get("title", "Unknown")
             podcast_title = episode.get("podcastTitle", "Unknown Podcast")
             url = episode.get("url")
-            
+
             if not url:
                 print(f"✗ No download URL for: {title}")
                 return False
-            
+
             ext = ".mp3"
             if "." in url.split("/")[-1]:
                 ext = "." + url.split(".")[-1].split("?")[0]
-            
+
             if organize_by_podcast:
                 podcast_dir = self.download_dir / self.sanitize_filename(podcast_title)
                 podcast_dir.mkdir(parents=True, exist_ok=True)
                 filename = self.sanitize_filename(title) + ext
                 filepath = podcast_dir / filename
             else:
-                filename = self.sanitize_filename(f"{podcast_title} - {title}") + ext
+                filename = self.sanitize_filename(title) + ext
                 filepath = self.download_dir / filename
-            
+
             if filepath.exists():
                 print(f"⊘ Already exists: {filename}")
+                # Still update metadata on existing files
+                self.set_metadata(filepath, episode)
                 return True
-            
+
             print(f"↓ Downloading: {title}")
             response = requests.get(url, stream=True, timeout=30, verify=self.verify)
             response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
+
+            total_size = int(response.headers.get("content-length", 0))
             downloaded = 0
-            
-            with open(filepath, 'wb') as f:
+
+            with open(filepath, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
                         if total_size > 0:
                             percent = (downloaded / total_size) * 100
-                            print(f"  Progress: {percent:.1f}%", end='\r')
-            
+                            print(f"  Progress: {percent:.1f}%", end="\r")
+
             print(f"\n✓ Downloaded: {filename}")
+
+            self.set_metadata(filepath, episode)
+
             return True
-            
+
         except Exception as e:
             print(f"✗ Failed to download {episode.get('title', 'Unknown')}: {e}")
             return False
@@ -180,20 +372,20 @@ class PodcastDownloader:
 def filter_episodes_by_year(episodes, year):
     """Filter episodes by publish date"""
     filtered = []
-    
+
     for episode in episodes:
         published = episode.get("published")
-        
+
         if not published:
             continue
-        
+
         try:
-            episode_date = datetime.fromisoformat(published.replace('Z', '+00:00'))
+            episode_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
             if episode_date.year == year:
                 filtered.append(episode)
         except Exception:
             continue
-    
+
     return filtered
 
 
@@ -202,49 +394,45 @@ def main():
         description="Download favorited podcasts from Pocket Casts",
     )
     parser.add_argument(
-        "--token",
-        required=True,
-        help="Pocket Casts access token from browser"
+        "--token", required=True, help="Pocket Casts access token from browser"
     )
     parser.add_argument(
         "--year",
         type=int,
         default=datetime.now().year,
-        help="Year to filter favorited episodes (default: current year)"
+        help="Year to filter favorited episodes (default: current year)",
     )
     parser.add_argument(
         "--output-dir",
         default="./downloads",
-        help="Directory to save downloaded episodes (default: ./downloads)"
+        help="Directory to save downloaded episodes (default: ./downloads)",
     )
     parser.add_argument(
-        "--save-metadata",
-        action="store_true",
-        help="Save episode metadata as JSON"
+        "--save-metadata", action="store_true", help="Save episode metadata as JSON"
     )
     parser.add_argument(
         "--no-verify-ssl",
         action="store_true",
-        help="Disable SSL certificate verification (use if you get SSL errors)"
+        help="Disable SSL certificate verification (use if you get SSL errors)",
     )
     parser.add_argument(
         "--show-all",
         action="store_true",
-        help="Show all starred episodes (ignore year filter)"
+        help="Show all starred episodes (ignore year filter)",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be downloaded without actually downloading"
+        help="Show what would be downloaded without actually downloading",
     )
     parser.add_argument(
         "--organize-by-podcast",
         action="store_true",
-        help="Create separate directories for each podcast (default: include podcast name in filename)"
+        help="Create separate directories for each podcast (default: include podcast name in filename)",
     )
-    
+
     args = parser.parse_args()
-    
+
     print(f"Pocket Casts Favorited Podcasts Downloader")
     print(f"{'=' * 50}")
     print(f"Year: {args.year}")
@@ -254,93 +442,105 @@ def main():
     if args.dry_run:
         print(f"Mode: DRY RUN (no files will be downloaded)")
     print()
-    
+
     api = PocketCastsAPI(token=args.token, verify_ssl=not args.no_verify_ssl)
-    
+
     if not api.verify_auth():
         sys.exit(1)
-    
+
     all_episodes = api.get_starred_episodes()
-    
+
     if not all_episodes:
         print("No starred episodes found")
         sys.exit(0)
-    
+
     year_counts_published = {}
-    
+
     for episode in all_episodes:
         published = episode.get("published")
         if published:
             try:
-                pub_date = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
                 year = pub_date.year
                 year_counts_published[year] = year_counts_published.get(year, 0) + 1
             except Exception:
                 pass
-    
+
     if year_counts_published:
         print("\nStarred episodes by published date:")
         for year in sorted(year_counts_published.keys(), reverse=True):
             print(f"  {year}: {year_counts_published[year]} episodes")
         print()
-    
+
     if args.show_all:
         episodes = all_episodes
         print(f"✓ Downloading all {len(episodes)} starred episodes\n")
     else:
         episodes = filter_episodes_by_year(all_episodes, args.year)
         print(f"✓ Found {len(episodes)} episodes published in {args.year}\n")
-    
+
     if not episodes:
         if not args.show_all:
             print(f"No episodes found for {args.year}.")
             print("Try using --show-all to download all starred episodes.")
         sys.exit(0)
-    
+
     if args.save_metadata:
         metadata_file = Path(args.output_dir) / f"metadata_{args.year}.json"
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, "w") as f:
             json.dump(episodes, f, indent=2)
         print(f"✓ Saved metadata to {metadata_file}\n")
-    
+
     downloader = PodcastDownloader(args.output_dir, verify_ssl=not args.no_verify_ssl)
-    
+
     successful = 0
     failed = 0
-    
+
     if args.dry_run:
         print("DRY RUN - Files that would be downloaded:\n")
         for i, episode in enumerate(episodes, 1):
             title = episode.get("title", "Unknown")
             podcast_title = episode.get("podcastTitle", "Unknown Podcast")
             url = episode.get("url")
-            
+            published = episode.get("published", "")
+
+            year = ""
+            if published:
+                try:
+                    pub_date = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                    year = str(pub_date.year)
+                except Exception:
+                    pass
+
             ext = ".mp3"
             if url and "." in url.split("/")[-1]:
                 ext = "." + url.split(".")[-1].split("?")[0]
-            
+
             if args.organize_by_podcast:
                 podcast_dir = downloader.sanitize_filename(podcast_title)
                 filename = downloader.sanitize_filename(title) + ext
                 filepath = f"{args.output_dir}/{podcast_dir}/{filename}"
             else:
-                filename = downloader.sanitize_filename(f"{podcast_title} - {title}") + ext
+                filename = downloader.sanitize_filename(title) + ext
                 filepath = f"{args.output_dir}/{filename}"
-            
+
             print(f"[{i}/{len(episodes)}] {filepath}")
             if url:
                 successful += 1
             else:
                 print(f"    ⚠️  No download URL available")
                 failed += 1
+            print()
     else:
         for i, episode in enumerate(episodes, 1):
             print(f"\n[{i}/{len(episodes)}]")
-            if downloader.download_episode(episode, organize_by_podcast=args.organize_by_podcast):
+            if downloader.download_episode(
+                episode, organize_by_podcast=args.organize_by_podcast
+            ):
                 successful += 1
             else:
                 failed += 1
-    
+
     print(f"\n{'=' * 50}")
     if args.dry_run:
         print(f"Dry run complete!")

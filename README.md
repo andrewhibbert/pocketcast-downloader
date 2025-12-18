@@ -5,10 +5,13 @@ Download all your favorited podcasts from Pocket Casts, filtered by the year the
 ## Features
 
 - 🎯 Download episodes published in a specific year (or all starred episodes)
-- 📁 Saves files with podcast name in filename by default
+- 📁 Saves files with episode title as filename
 - 📂 Optional: Organize downloads into separate podcast directories
 - ⚡ Skips already downloaded files
 - 📊 Progress tracking for each download
+- 🏷️ Automatically adds metadata tags (Title, Artist, Album, Year, Genre, Album Art)
+- 🧠 Smart title enhancement - prefixes short/generic titles with podcast name
+- 🔄 Updates metadata on existing files (enhances titles, adds missing tags)
 - 💾 Optional metadata export to JSON
 - 🔒 Works with Google Sign-In accounts
 - 🔍 Dry-run mode to preview downloads
@@ -54,7 +57,7 @@ python pocketcast_downloader.py --token YOUR_ACCESS_TOKEN
 - `--organize-by-podcast`: Create separate directories for each podcast
 - `--dry-run`: Show what would be downloaded without downloading
 - `--save-metadata`: Save episode metadata as JSON
-- `--no-verify-ssl`: Disable SSL verification (needed on macOS)
+- `--no-verify-ssl`: Disable SSL verification
 
 ### Examples
 
@@ -86,14 +89,43 @@ python pocketcast_downloader.py \
   --dry-run
 ```
 
+This will show the file paths where episodes will be saved, without actually downloading anything or checking existing metadata.
+
 **Save to a specific directory with metadata:**
 ```bash
 python pocketcast_downloader.py \
   --token YOUR_ACCESS_TOKEN \
-  --year 2025 \
+=  --year 2025 \
   --output-dir ~/Podcasts \
   --save-metadata
 ```
+
+## Metadata Tags
+
+The script automatically adds/updates the following metadata tags on downloaded files:
+
+- **Title**: Episode title (enhanced with podcast name if too short or generic)
+- **Artist**: Podcast name
+- **Album**: Podcast name
+- **Year**: Year the episode was published
+- **Genre**: "Podcast"
+- **Album Art**: Podcast cover artwork (downloaded and embedded)
+
+This works for both MP3 (ID3 tags) and M4A (iTunes tags) files.
+
+### Smart Title Enhancement
+
+If an episode title is short (< 15 characters) or doesn't reference the podcast name, the script will enhance it by prefixing with the podcast name
+
+This makes episodes easier to identify in your music player.
+
+### Metadata Updates
+
+- **New files**: All metadata tags are added during download
+- **Existing files**: The script checks and updates metadata without re-downloading
+  - Enhances short/generic titles
+  - Adds missing tags (Artist, Album, Year, Genre, Album Art)
+  - Preserves any other existing metadata
 
 ## Security Notes
 
