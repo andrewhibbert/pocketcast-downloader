@@ -160,19 +160,37 @@ class PodcastDownloader:
 
             # Enhance title if it's too short or generic
             # Check if title is very short or doesn't contain podcast info
+            original_title = title
             if title and podcast_title:
                 title_lower = title.lower()
                 podcast_lower = podcast_title.lower()
+                
+                print(f"  🔍 DEBUG: Checking title enhancement")
+                print(f"      Original title: '{title}' (length: {len(title)})")
+                print(f"      Podcast name: '{podcast_title}'")
+                print(f"      Title too short (<15 chars): {len(title) < 15}")
+                print(f"      Podcast name in title: {podcast_lower in title_lower}")
+                
+                # Check if any of the first 2 words from podcast name are in title
+                podcast_words = podcast_lower.split()[:2]
+                words_found = [word for word in podcast_words if word in title_lower]
+                print(f"      Podcast words to check: {podcast_words}")
+                print(f"      Words found in title: {words_found}")
 
                 # If title is short (< 15 chars) or doesn't reference the podcast
-                if len(title) < 15 or (
+                needs_enhancement = len(title) < 15 or (
                     podcast_lower not in title_lower
                     and not any(
                         word in title_lower for word in podcast_lower.split()[:2]
                     )
-                ):
+                )
+                
+                print(f"      Needs enhancement: {needs_enhancement}")
+                
+                if needs_enhancement:
                     # Enhance with podcast name prefix
                     title = f"{podcast_title} - {title}"
+                    print(f"      ✏️  Enhanced to: '{title}'")
 
             year = ""
             if published:
@@ -205,13 +223,29 @@ class PodcastDownloader:
                     # Check if existing title is short or generic
                     existing_lower = existing_title.lower()
                     podcast_lower = podcast_title.lower()
-                    if len(existing_title) < 15 or (
+                    
+                    print(f"  🔍 DEBUG: Checking existing MP3 title for enhancement")
+                    print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
+                    print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
+                    print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
+                    
+                    podcast_words = podcast_lower.split()[:2]
+                    words_found = [word for word in podcast_words if word in existing_lower]
+                    print(f"      Podcast words to check: {podcast_words}")
+                    print(f"      Words found in existing title: {words_found}")
+                    
+                    should_update = len(existing_title) < 15 or (
                         podcast_lower not in existing_lower
                         and not any(
                             word in existing_lower for word in podcast_lower.split()[:2]
                         )
-                    ):
+                    )
+                    
+                    print(f"      Should update existing title: {should_update}")
+                    
+                    if should_update:
                         should_update_title = True
+                        print(f"      ✏️  Will update to: '{title}'")
 
                 if not existing_title_frames:
                     audio.tags.add(TIT2(encoding=3, text=title))
@@ -263,13 +297,29 @@ class PodcastDownloader:
                     # Check if existing title is short or generic
                     existing_lower = existing_title.lower()
                     podcast_lower = podcast_title.lower()
-                    if len(existing_title) < 15 or (
+                    
+                    print(f"  🔍 DEBUG: Checking existing M4A title for enhancement")
+                    print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
+                    print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
+                    print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
+                    
+                    podcast_words = podcast_lower.split()[:2]
+                    words_found = [word for word in podcast_words if word in existing_lower]
+                    print(f"      Podcast words to check: {podcast_words}")
+                    print(f"      Words found in existing title: {words_found}")
+                    
+                    should_update = len(existing_title) < 15 or (
                         podcast_lower not in existing_lower
                         and not any(
                             word in existing_lower for word in podcast_lower.split()[:2]
                         )
-                    ):
+                    )
+                    
+                    print(f"      Should update existing title: {should_update}")
+                    
+                    if should_update:
                         should_update_title = True
+                        print(f"      ✏️  Will update to: '{title}'")
 
                 if "\xa9nam" not in audio:
                     audio["\xa9nam"] = title
