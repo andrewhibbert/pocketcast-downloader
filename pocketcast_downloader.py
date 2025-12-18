@@ -100,10 +100,11 @@ class PocketCastsAPI:
 class PodcastDownloader:
     """Downloads podcast episodes"""
 
-    def __init__(self, download_dir="./downloads", verify_ssl=True):
+    def __init__(self, download_dir="./downloads", verify_ssl=True, debug=False):
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.verify_ssl = verify_ssl
+        self.debug = debug
 
         if verify_ssl:
             try:
@@ -158,39 +159,27 @@ class PodcastDownloader:
             podcast_title = episode.get("podcastTitle", "")
             published = episode.get("published", "")
 
-            # Enhance title if it's too short or generic
-            # Check if title is very short or doesn't contain podcast info
             original_title = title
             if title and podcast_title:
                 title_lower = title.lower()
                 podcast_lower = podcast_title.lower()
                 
-                print(f"  🔍 DEBUG: Checking title enhancement")
-                print(f"      Original title: '{title}' (length: {len(title)})")
-                print(f"      Podcast name: '{podcast_title}'")
-                print(f"      Title too short (<15 chars): {len(title) < 15}")
-                print(f"      Podcast name in title: {podcast_lower in title_lower}")
-                
-                # Check if any of the first 2 words from podcast name are in title
-                podcast_words = podcast_lower.split()[:2]
-                words_found = [word for word in podcast_words if word in title_lower]
-                print(f"      Podcast words to check: {podcast_words}")
-                print(f"      Words found in title: {words_found}")
+                if self.debug:
+                    print(f"  🔍 DEBUG: Checking title enhancement")
+                    print(f"      Original title: '{title}' (length: {len(title)})")
+                    print(f"      Podcast name: '{podcast_title}'")
+                    print(f"      Title too short (<15 chars): {len(title) < 15}")
+                    print(f"      Podcast name in title: {podcast_lower in title_lower}")
 
-                # If title is short (< 15 chars) or doesn't reference the podcast
-                needs_enhancement = len(title) < 15 or (
-                    podcast_lower not in title_lower
-                    and not any(
-                        word in title_lower for word in podcast_lower.split()[:2]
-                    )
-                )
+                needs_enhancement = len(title) < 15 and podcast_lower not in title_lower
                 
-                print(f"      Needs enhancement: {needs_enhancement}")
+                if self.debug:
+                    print(f"      Needs enhancement (short AND no podcast name): {needs_enhancement}")
                 
                 if needs_enhancement:
-                    # Enhance with podcast name prefix
                     title = f"{podcast_title} - {title}"
-                    print(f"      ✏️  Enhanced to: '{title}'")
+                    if self.debug:
+                        print(f"      ✏️  Enhanced to: '{title}'")
 
             year = ""
             if published:
@@ -212,7 +201,6 @@ class PodcastDownloader:
                 if audio.tags is None:
                     audio.add_tags()
 
-                # Check if existing title needs enhancement
                 existing_title = None
                 existing_title_frames = audio.tags.getall("TIT2")
                 if existing_title_frames:
@@ -220,38 +208,29 @@ class PodcastDownloader:
 
                 should_update_title = False
                 if existing_title:
-                    # Check if existing title is short or generic
                     existing_lower = existing_title.lower()
                     podcast_lower = podcast_title.lower()
                     
-                    print(f"  🔍 DEBUG: Checking existing MP3 title for enhancement")
-                    print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
-                    print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
-                    print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
+                    if self.debug:
+                        print(f"  🔍 DEBUG: Checking existing MP3 title for enhancement")
+                        print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
+                        print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
+                        print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
                     
-                    podcast_words = podcast_lower.split()[:2]
-                    words_found = [word for word in podcast_words if word in existing_lower]
-                    print(f"      Podcast words to check: {podcast_words}")
-                    print(f"      Words found in existing title: {words_found}")
+                    should_update = len(existing_title) < 15 and podcast_lower not in existing_lower
                     
-                    should_update = len(existing_title) < 15 or (
-                        podcast_lower not in existing_lower
-                        and not any(
-                            word in existing_lower for word in podcast_lower.split()[:2]
-                        )
-                    )
-                    
-                    print(f"      Should update existing title: {should_update}")
+                    if self.debug:
+                        print(f"      Should update (short AND no podcast name): {should_update}")
                     
                     if should_update:
                         should_update_title = True
-                        print(f"      ✏️  Will update to: '{title}'")
+                        if self.debug:
+                            print(f"      ✏️  Will update to: '{title}'")
 
                 if not existing_title_frames:
                     audio.tags.add(TIT2(encoding=3, text=title))
                     tags_added.append("Title")
                 elif should_update_title:
-                    # Update existing short/generic title
                     audio.tags.delall("TIT2")
                     audio.tags.add(TIT2(encoding=3, text=title))
                     tags_added.append("Title (enhanced)")
@@ -287,39 +266,30 @@ class PodcastDownloader:
                         tags_added.append("Album Art")
 
             elif isinstance(audio, MP4):
-                # Check if existing title needs enhancement
                 existing_title = None
                 if "\xa9nam" in audio:
                     existing_title = str(audio["\xa9nam"][0])
 
                 should_update_title = False
                 if existing_title:
-                    # Check if existing title is short or generic
                     existing_lower = existing_title.lower()
                     podcast_lower = podcast_title.lower()
                     
-                    print(f"  🔍 DEBUG: Checking existing M4A title for enhancement")
-                    print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
-                    print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
-                    print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
+                    if self.debug:
+                        print(f"  🔍 DEBUG: Checking existing M4A title for enhancement")
+                        print(f"      Existing title: '{existing_title}' (length: {len(existing_title)})")
+                        print(f"      Title too short (<15 chars): {len(existing_title) < 15}")
+                        print(f"      Podcast name in existing title: {podcast_lower in existing_lower}")
                     
-                    podcast_words = podcast_lower.split()[:2]
-                    words_found = [word for word in podcast_words if word in existing_lower]
-                    print(f"      Podcast words to check: {podcast_words}")
-                    print(f"      Words found in existing title: {words_found}")
+                    should_update = len(existing_title) < 15 and podcast_lower not in existing_lower
                     
-                    should_update = len(existing_title) < 15 or (
-                        podcast_lower not in existing_lower
-                        and not any(
-                            word in existing_lower for word in podcast_lower.split()[:2]
-                        )
-                    )
-                    
-                    print(f"      Should update existing title: {should_update}")
+                    if self.debug:
+                        print(f"      Should update (short AND no podcast name): {should_update}")
                     
                     if should_update:
                         should_update_title = True
-                        print(f"      ✏️  Will update to: '{title}'")
+                        if self.debug:
+                            print(f"      ✏️  Will update to: '{title}'")
 
                 if "\xa9nam" not in audio:
                     audio["\xa9nam"] = title
@@ -388,7 +358,6 @@ class PodcastDownloader:
 
             if filepath.exists():
                 print(f"⊘ Already exists: {filename}")
-                # Still update metadata on existing files
                 self.set_metadata(filepath, episode)
                 return True
 
@@ -480,6 +449,11 @@ def main():
         action="store_true",
         help="Create separate directories for each podcast (default: include podcast name in filename)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show debug information for title enhancement logic",
+    )
 
     args = parser.parse_args()
 
@@ -541,7 +515,7 @@ def main():
             json.dump(episodes, f, indent=2)
         print(f"✓ Saved metadata to {metadata_file}\n")
 
-    downloader = PodcastDownloader(args.output_dir, verify_ssl=not args.no_verify_ssl)
+    downloader = PodcastDownloader(args.output_dir, verify_ssl=not args.no_verify_ssl, debug=args.debug)
 
     successful = 0
     failed = 0
