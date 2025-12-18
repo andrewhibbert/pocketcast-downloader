@@ -109,7 +109,6 @@ The script automatically adds/updates the following metadata tags on downloaded 
 - **Album**: Podcast name
 - **Year**: Year the episode was published
 - **Genre**: "Podcast"
-- **Album Art**: Podcast cover artwork (downloaded and embedded)
 
 This works for both MP3 (ID3 tags) and M4A (iTunes tags) files.
 

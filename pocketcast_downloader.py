@@ -127,15 +127,6 @@ class PodcastDownloader:
 
         return filename
 
-    def download_artwork(self, url):
-        """Download artwork image from URL"""
-        try:
-            response = requests.get(url, timeout=10, verify=self.verify)
-            response.raise_for_status()
-            return response.content
-        except Exception:
-            return None
-
     def set_metadata(self, filepath, episode):
         """
         Set metadata tags (ID3 for MP3, iTunes tags for M4A) on the downloaded file.
@@ -147,7 +138,6 @@ class PodcastDownloader:
         - Album: Podcast name
         - Year: Published year
         - Genre: "Podcast"
-        - Album Art: Podcast artwork (if available)
         """
         try:
             audio = MutagenFile(filepath, easy=False)
@@ -190,12 +180,6 @@ class PodcastDownloader:
                     pass
 
             tags_added = []
-
-            artwork_url = (
-                episode.get("episodeArtworkUrl")
-                or episode.get("podcastArtworkUrl")
-                or episode.get("imageUrl")
-            )
 
             if isinstance(audio, MP3):
                 if audio.tags is None:
@@ -248,23 +232,6 @@ class PodcastDownloader:
                     audio.tags.add(TCON(encoding=3, text="Podcast"))
                     tags_added.append("Genre")
 
-                if artwork_url and not audio.tags.getall("APIC"):
-                    artwork_data = self.download_artwork(artwork_url)
-                    if artwork_data:
-                        mime = "image/jpeg"
-                        if artwork_url.lower().endswith(".png"):
-                            mime = "image/png"
-                        audio.tags.add(
-                            APIC(
-                                encoding=3,
-                                mime=mime,
-                                type=3,
-                                desc="Cover",
-                                data=artwork_data,
-                            )
-                        )
-                        tags_added.append("Album Art")
-
             elif isinstance(audio, MP4):
                 existing_title = None
                 if "\xa9nam" in audio:
@@ -311,17 +278,6 @@ class PodcastDownloader:
                 if "\xa9gen" not in audio:
                     audio["\xa9gen"] = "Podcast"
                     tags_added.append("Genre")
-
-                if artwork_url and "covr" not in audio:
-                    artwork_data = self.download_artwork(artwork_url)
-                    if artwork_data:
-                        imageformat = MP4Cover.FORMAT_JPEG
-                        if artwork_url.lower().endswith(".png"):
-                            imageformat = MP4Cover.FORMAT_PNG
-                        audio["covr"] = [
-                            MP4Cover(artwork_data, imageformat=imageformat)
-                        ]
-                        tags_added.append("Album Art")
 
             if tags_added:
                 audio.save()
